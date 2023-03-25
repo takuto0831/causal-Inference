@@ -1,0 +1,25 @@
+### code memo
+# https://github.com/google/CausalImpact/blob/1bb8a4996b98722795d46d7901051149b3185805/R/impact_inference.R
+
+# ここで summary(impact)で取得できるコードがあり, point.pred.mean.post が 事後分布の平均
+CompileSummaryTable <- function(y.post, y.samples.post,
+                                point.pred.mean.post, alpha = 0.05)
+  Pred = c(mean(point.pred.mean.post), sum(point.pred.mean.post)),
+  
+# この関数で計算する. 
+# alpha	はcausal impactの引数
+# Desired tail-area probability for posterior intervals. Defaults to 0.05, which will produce central 95% intervals.
+
+CompilePosteriorInferences <- function(bsts.model, y.cf, post.period,
+                                       alpha = 0.05, UnStandardize = identity)
+  y.samples <- ComputeResponseTrajectories(bsts.model)
+  state.samples <- GetPosteriorStateSamples(bsts.model)
+  point.pred <- ComputePointPredictions(y.samples, state.samples, alpha)
+  point.pred.mean.post <- point.pred$point.pred[is.post.period]
+  summary <- CompileSummaryTable(y.post, y.samples.post, point.pred.mean.post,
+                                 alpha)
+                                 
+                                 
+# 回帰係数や自己回帰係数
+y, xを標準化してモデルに組み込むので, 回帰係数として解釈するのは難しい. 
+-> ここはやりどころかも? 

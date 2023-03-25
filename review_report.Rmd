@@ -1,0 +1,111 @@
+---
+title: "causal imact trial"
+author: "takuto"
+date: "3/25/2023"
+output: html_document
+---
+
+```{r}
+library(CausalImpact)
+```
+
+## tutorial
+
+```{r}
+set.seed(1)
+x1 <- 100 + arima.sim(model = list(ar = 0.999), n = 100)
+x1_fix <- scale(x1)
+
+y <- 1.7 * x1 + rnorm(100)
+
+y[71:100] <- y[71:100] + 10
+data <- cbind(y, x1)
+
+pre.period <- c(1, 70)
+post.period <- c(71, 100)
+```
+
+```{r}
+impact <- CausalImpact(data, 
+                       pre.period, 
+                       post.period, 
+                       model.args = list(niter=63))
+```
+
+
+### basic result
+
+```{r}
+plot(impact)
+```
+
+```{r}
+## get result df 
+df1 <- impact[[1]]
+df1 |> data.frame() |> head()
+```
+
+```{r}
+## how to get model parameter
+list1 <- impact[[4]]
+# list1
+summary(impact)
+```
+
+### applied result
+
+```{r}
+bsts_model1 <- list1$bsts.model
+burn <- SuggestBurn(0.1, bsts_model1)
+
+```
+
+```{r}
+# trend (u_t)は良い感じに求められている, regressionはbeta*x (標準化済み)を表しているはず. 
+tmp1 <- data_frame(
+  x = 1:100,
+  trend = bsts_model1$state.contributions[-(1:burn),"trend" ,] |> colMeans(),
+  regression = bsts_model1$state.contributions[-(1:burn),"regression" ,] |> colMeans(),
+  x1 = x1, 
+  x1_fix = x1_fix) |> 
+  mutate(beta = regression/ x1_fix,
+         maybe_y_samples = trend + regression)
+
+```
+
+```{r}
+tmp1 |> 
+  gather("component", "value", trend, regression, x1_fix, x1) %>%
+  ggplot(aes(x = x, y= value)) + 
+  geom_line() + theme_bw() + 
+  theme(legend.title = element_blank()) + ylab("") + xlab("") +
+  facet_grid(component ~ ., scales="free") + guides(colour=FALSE) +
+  theme(axis.text.x=element_text(angle = -90, hjust = 0))
+
+# これと同じ
+plot(bsts_model1, "components")
+```
+
+- 観測方程式の beta*x に関する gammaの値で モデルに含まれるなら1, そうでないなら0
+-> ここが spike-and-slabの部分
+
+```{r}
+plot(bsts_model1, "coefficients")
+```
+- カルマンフィルターによる1期間先の予測の誤差 -> これ使えそう.
+
+```{r}
+errors1 <- bsts_model1$one.step.prediction.errors |>
+  data.frame() |> 
+  sapply(FUN=mean) |> 
+  as.vector()
+
+errors1[-(1:burn),] |> colMeans() |> plot()
+```
+
+## tutorial with non-linear
+
+```{r}
+
+```
+
