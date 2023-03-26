@@ -13,10 +13,11 @@ library(CausalImpact)
 
 ```{r}
 set.seed(1)
-x1 <- 100 + arima.sim(model = list(ar = 0.999), n = 100)
+n=100
+x1 <- arima.sim(model = list(ar = 0.999), n = n) + .5 * 1:n
 x1_fix <- scale(x1)
 
-y <- 1.7 * x1 + rnorm(100)
+y <- 1.7 * x1 + rnorm(n)
 
 y[71:100] <- y[71:100] + 10
 data <- cbind(y, x1)
@@ -63,7 +64,7 @@ burn <- SuggestBurn(0.1, bsts_model1)
 ```{r}
 # trend (u_t)は良い感じに求められている, regressionはbeta*x (標準化済み)を表しているはず. 
 tmp1 <- data_frame(
-  x = 1:100,
+  time = 1:100,
   trend = bsts_model1$state.contributions[-(1:burn),"trend" ,] |> colMeans(),
   regression = bsts_model1$state.contributions[-(1:burn),"regression" ,] |> colMeans(),
   x1 = x1, 
@@ -76,7 +77,7 @@ tmp1 <- data_frame(
 ```{r}
 tmp1 |> 
   gather("component", "value", trend, regression, x1_fix, x1) %>%
-  ggplot(aes(x = x, y= value)) + 
+  ggplot(aes(x = time, y= value)) + 
   geom_line() + theme_bw() + 
   theme(legend.title = element_blank()) + ylab("") + xlab("") +
   facet_grid(component ~ ., scales="free") + guides(colour=FALSE) +
@@ -96,16 +97,118 @@ plot(bsts_model1, "coefficients")
 
 ```{r}
 errors1 <- bsts_model1$one.step.prediction.errors |>
-  data.frame() |> 
-  sapply(FUN=mean) |> 
-  as.vector()
+  data.frame() 
 
 errors1[-(1:burn),] |> colMeans() |> plot()
+
+# index1のエラーが大きいので
+errors1[-(1:burn),] |> colMeans() -> tmp 
+tmp[2:100] |> plot()
+# errors1[-(1:burn),] |> colMeans() |> View()
+
+# acf
+errors1[-(1:burn),] |> colMeans() |> acf()
+
 ```
 
 ## tutorial with non-linear
 
 ```{r}
+set.seed(1)
+n=100
+x1 <- arima.sim(model = list(ar = 0.999), n = n) + .5 * 1:n
+x1_fix <- scale(x1)
+
+y <- 0.01 * x1^2 + rnorm(n)
+y[71:100] <- y[71:100] + 10
+
+data <- cbind(y, x1)
+pre.period <- c(1, 70)
+post.period <- c(71, 100)
+```
+
+```{r}
+impact <- CausalImpact(data, 
+                       pre.period, 
+                       post.period, 
+                       model.args = list(niter=63))
+```
+
+### basic result
+
+```{r}
+plot(impact)
+```
+
+```{r}
+## get result df 
+df2 <- impact[[1]]
+df2 |> data.frame() |> head()
+```
+
+```{r}
+## how to get model parameter
+list2 <- impact[[4]]
+# list2
+summary(impact)
+```
+
+### applied result
+
+```{r}
+bsts_model2 <- list2$bsts.model
+burn <- SuggestBurn(0.1, bsts_model2)
+```
+
+```{r}
+# trend (u_t)は良い感じに求められている, regressionはbeta*x (標準化済み)を表しているはず. 
+tmp2 <- data_frame(
+  time = 1:100,
+  trend = bsts_model2$state.contributions[-(1:burn),"trend" ,] |> colMeans(),
+  regression = bsts_model2$state.contributions[-(1:burn),"regression" ,] |> colMeans(),
+  x1 = x1, 
+  x1_fix = x1_fix) |> 
+  mutate(beta = regression/ x1_fix,
+         maybe_y_samples = trend + regression)
+```
+
+```{r}
+tmp2 |> 
+  gather("component", "value", trend, regression, x1_fix, x1) %>%
+  ggplot(aes(x = time, y= value)) + 
+  geom_line() + theme_bw() + 
+  theme(legend.title = element_blank()) + ylab("") + xlab("") +
+  facet_grid(component ~ ., scales="free") + guides(colour=FALSE) +
+  theme(axis.text.x=element_text(angle = -90, hjust = 0))
+# これと同じ
+plot(bsts_model1, "components")
+```
+
+- 観測方程式の beta*x に関する gammaの値で モデルに含まれるなら1, そうでないなら0
+-> ここが spike-and-slabの部分
+
+```{r}
+plot(bsts_model2, "coefficients")
+```
+- カルマンフィルターによる1期間先の予測の誤差 
+-> 残差分析に使えそう.
+
+chatgpt: 例えば、残差がランダムに分布している場合、モデルが適切であると考えられます。残差がパターンを持っていたり、自己相関がある場合、モデルに改善の余地があると考えられます。
+
+```{r}
+errors2 <- bsts_model2$one.step.prediction.errors |>
+  data.frame() 
+errors2[-(1:burn),] |> colMeans() |> plot()
+
+
+errors2[-(1:burn),] |> colMeans() |> acf()
+```
+
+```{r}
+bsts.prediction.errors(bsts_model2,
+                       cutpoints = c(10,70))
+
+plot(bsts_model2, "prediction.errors", cutpoints = c(10,70))
 
 ```
 
