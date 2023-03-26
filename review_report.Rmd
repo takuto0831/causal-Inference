@@ -212,3 +212,106 @@ plot(bsts_model2, "prediction.errors", cutpoints = c(10,70))
 
 ```
 
+## two meaning value and noise
+ 
+```{r}
+set.seed(1)
+n=100
+x1 <- arima.sim(model = list(ar = 0.999), n = n) + .5 * 1:n
+x2 <- arima.sim(model = list(ar = 0.999, ma = 1), n = n)
+x3 <- arima.sim(model = list(ar = 0.90, ma = 0.5), n = n)
+
+x1_fix <- scale(x1)
+x2_fix <- scale(x2)
+x3_fix <- scale(x3)
+
+y <- 1.3 * x1 + 0.7 * x2 + rnorm(n)
+
+y[71:100] <- y[71:100] + 10
+data <- cbind(y, x1,x2,x3)
+
+pre.period <- c(1, 70)
+post.period <- c(71, 100)
+```
+
+```{r}
+impact <- CausalImpact(data, 
+                       pre.period, 
+                       post.period, 
+                       model.args = list(niter=63))
+```
+
+
+### basic result
+
+```{r}
+plot(impact)
+```
+
+```{r}
+## get result df 
+df3 <- impact[[1]]
+df3 |> data.frame() |> head()
+```
+
+```{r}
+## how to get model parameter
+list3 <- impact[[4]]
+summary(impact)
+```
+
+### applied result
+
+```{r}
+bsts_model3 <- list3$bsts.model
+burn <- SuggestBurn(0.1, bsts_model3)
+```
+
+```{r}
+# trend (u_t)は良い感じに求められている, regressionはbeta*x (標準化済み)を表しているはず. 
+tmp3 <- data_frame(
+  time = 1:100,
+  trend = bsts_model3$state.contributions[-(1:burn),"trend" ,] |> colMeans(),
+  regression = bsts_model3$state.contributions[-(1:burn),"regression" ,] |> colMeans(),
+  x1_fix = x1_fix,
+  x2_fix = x2_fix,
+  x3_fix = x3_fix) |> 
+  mutate(maybe_y_samples = trend + regression)
+```
+
+```{r}
+tmp3 |> 
+  gather("component", "value", trend, regression, x1_fix, x2_fix, x3_fix) %>%
+  ggplot(aes(x = time, y= value)) + 
+  geom_line() + theme_bw() + 
+  theme(legend.title = element_blank()) + ylab("") + xlab("") +
+  facet_grid(component ~ ., scales="free") + guides(colour=FALSE) +
+  theme(axis.text.x=element_text(angle = -90, hjust = 0))
+
+# これと同じ
+plot(bsts_model3, "components")
+```
+
+- 観測方程式の beta*x に関する gammaの値で モデルに含まれるなら1, そうでないなら0
+-> ここが spike-and-slabの部分
+
+```{r}
+plot(bsts_model3, "coefficients")
+```
+- カルマンフィルターによる1期間先の予測の誤差 -> これ使えそう.
+
+```{r}
+errors3 <- bsts_model3$one.step.prediction.errors |>
+  data.frame() 
+
+errors3[-(1:burn),] |> colMeans() |> plot()
+
+# index1のエラーが大きいので
+errors3[-(1:burn),] |> colMeans() -> tmp 
+tmp[2:100] |> plot()
+# errors1[-(1:burn),] |> colMeans() |> View()
+
+# acf
+errors3[-(1:burn),] |> colMeans() |> acf()
+
+```
